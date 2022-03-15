@@ -40,21 +40,15 @@ impl Scattergram {
     ///
     /// `(scatters + trues) / trues`
     pub fn value(&self, lor: &LOR) -> Ratio {
-        let trues = self.trues.value(lor);
-        if trues > 0 {
-            let scatters: f32 = self.scatters.value(lor) as f32;
-            let trues = trues as f32;
-            (scatters + trues) / trues
-        } else { 1.0 }
+        let trues = self.trues.value(lor) as f32;
+        let scatters = self.scatters.value(lor) as f32;
+        scatters / (trues + scatters)
     }
 
     pub fn triplet(&self, lor: &LOR) -> (Ratio, f32, f32) {
-        let trues = self.trues.value(lor);
-        if trues > 0 {
-            let scatters: f32 = self.scatters.value(lor) as f32;
-            let trues = trues as f32;
-            ((scatters + trues) / trues, trues, scatters)
-        } else { (1.0, 0.0, self.scatters.value(lor) as f32) }
+        let trues = self.trues.value(lor) as f32;
+        let scatters = self.scatters.value(lor) as f32;
+        (scatters / (trues + scatters), trues, scatters)
     }
 }
 // --------------------------------------------------------------------------------
