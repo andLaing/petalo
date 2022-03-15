@@ -1,10 +1,12 @@
+use std::ops::RangeBounds;
 use std::path::PathBuf;
 use structopt::StructOpt;
-use petalo::utils::parse_range;
+use petalo::utils::{parse_bounds, parse_range};
 use petalo::io::hdf5::{Hdf5Lor, read_table};
 use petalo::lorogram::{axis_z, axis_dz, axis_phi, axis_r, fill_scattergram, mk_lor};
 use ndhistogram::ndhistogram;
 use std::f32::consts::PI;
+use petalo::types::{Energy, BoundPair};
 
 
 #[derive(StructOpt, Debug, Clone)]
@@ -23,6 +25,10 @@ pub struct Cli {
     #[structopt(short, long, parse(try_from_str = parse_range::<usize>))]
     pub event_range: Option<std::ops::Range<usize>>,
 
+    /// Ignore events with gamma energy/keV outside this range
+    #[structopt(short = "E", long, parse(try_from_str = parse_bounds::<Energy>), default_value = "..")]
+    pub ecut: BoundPair<Energy>,
+
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -36,10 +42,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let step_r  =  r_max / nbins_r  as f32;
     let step_dz = dz_max / nbins_dz as f32;
     let infile  = args.input_file.into_os_string().into_string().unwrap();
+    let eng_range = args.ecut;
 
     {
         println!("===== z dependence ======================================");
-        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?;
+        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?
+                                                    .iter().cloned().filter(|Hdf5Lor{E1, E2, ..}| {
+                                                        eng_range.contains(E1) && eng_range.contains(E2)
+                                                    }).collect();
         let sgram = fill_scattergram(&|| Box::new(ndhistogram!(axis_z(nbins_z, -l/2.0, l/2.0); usize)), lors);
 
         println!("     z       (s/t) + 1     trues   scatters");
@@ -52,7 +62,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         println!("===== phi dependence ====================================");
-        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?;
+        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?
+                                                    .iter().cloned().filter(|Hdf5Lor{E1, E2, ..}| {
+                                                        eng_range.contains(E1) && eng_range.contains(E2)
+                                                    }).collect();
         let sgram = fill_scattergram(&|| Box::new(ndhistogram!(axis_phi(nbins_phi); usize)), lors);
 
         println!("   phi       (s/t) + 1     trues   scatters");
@@ -69,7 +82,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         println!("===== r dependence ====================================");
-        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?;
+        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?
+                                                    .iter().cloned().filter(|Hdf5Lor{E1, E2, ..}| {
+                                                        eng_range.contains(E1) && eng_range.contains(E2)
+                                                    }).collect();
         let sgram = fill_scattergram(&|| Box::new(ndhistogram!(axis_r(nbins_r, r_max); usize)), lors);
         println!("     r       (s/t) + 1     trues   scatters");
         for i in 0..nbins_r {
@@ -82,7 +98,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         println!("===== obliqueness ====================================");
-        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?;
+        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?
+                                                    .iter().cloned().filter(|Hdf5Lor{E1, E2, ..}| {
+                                                        eng_range.contains(E1) && eng_range.contains(E2)
+                                                    }).collect();
         let sgram = fill_scattergram(&|| Box::new(ndhistogram!(axis_dz(nbins_dz, dz_max); usize)), lors);
         println!("     dz      (s/t) + 1     trues   scatters");
         for i in 0..nbins_dz {
@@ -95,7 +114,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         println!("===== z and dz ====================================");
-        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?;
+        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?
+                                                    .iter().cloned().filter(|Hdf5Lor{E1, E2, ..}| {
+                                                        eng_range.contains(E1) && eng_range.contains(E2)
+                                                    }).collect();
         let sgram = fill_scattergram(
             &|| Box::new(
                 ndhistogram!(axis_z (nbins_z , -l/2.0, l/2.0),
@@ -125,7 +147,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     {
         println!("===== z and r =====================================");
-        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?;
+        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?
+                                                    .iter().cloned().filter(|Hdf5Lor{E1, E2, ..}| {
+                                                        eng_range.contains(E1) && eng_range.contains(E2)
+                                                    }).collect();
         let sgram = fill_scattergram(
             &|| Box::new(
                 ndhistogram!(axis_z(nbins_z , -l/2.0, l/2.0),
@@ -157,7 +182,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("======================================================================");
         println!("===== Using z-dz-r scattergram =======================================");
         println!("======================================================================");
-        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?;
+        let lors = read_table::<Hdf5Lor>(&infile, &args.dataset, args.event_range.clone())?
+                                                    .iter().cloned().filter(|Hdf5Lor{E1, E2, ..}| {
+                                                        eng_range.contains(E1) && eng_range.contains(E2)
+                                                    }).collect();
         let sgram = fill_scattergram(
             &|| Box::new(
                 ndhistogram!(axis_z  (nbins_z  , -l/2.0, l/2.0),

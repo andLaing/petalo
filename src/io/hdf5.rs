@@ -159,7 +159,10 @@ pub fn read_scattergram(args: Args, lgram_name: &str) -> Result<Scattergram, Box
         }
         sgram
     }
-    let h5lors = read_table::<Hdf5Lor>(&args.input_file, &args.dataset, args.event_range.clone())?;
+    let h5lors = read_table::<Hdf5Lor>(&args.input_file, &args.dataset, args.event_range.clone())?
+                                                    .iter().cloned().filter(|Hdf5Lor{E1, E2, ..}| {
+                                                        args.ecut.contains(E1) && args.ecut.contains(E2)
+                                                    }).collect();
     let now = std::time::Instant::now();
     let sgram = fill_scattergram(&|| define_histogram(lgram_name), h5lors);
     println!("Calculated Scattergram in {} ms", crate::utils::group_digits(now.elapsed().as_millis()));
