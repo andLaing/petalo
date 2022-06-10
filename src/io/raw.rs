@@ -219,6 +219,25 @@ mod test_with_metadata {
 
 }
 
+#[cfg(test)]
+mod test_with_intefile_data {
+    use super::*;
+
+    #[test]
+    fn test_interfile_set_pixels() -> std::io::Result<()> {
+        let interfilename = "test-mlem-images/interfile/interfile_test_it5.img";
+
+        let npixel = [10, 10, 10];
+        let edge_mm = [10.0, 10.0, 10.0];
+        let image_data = InterFile::read_from_file(&interfilename, (npixel,))?;
+        let inter_data = image_data.data.clone();
+        let image = image_data.convert_to_image(npixel, edge_mm);
+        assert_eq!(npixel.iter().product::<u16>(), inter_data.len() as u16);
+        assert_eq!(inter_data, image.data);
+        Ok(())
+    }
+}
+
 // ----- Proofs of concept ---------------------------------------------------------------
 #[cfg(test)]
 mod test_br_enum {
