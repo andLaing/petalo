@@ -101,8 +101,34 @@ impl Image3D {
     }
 }
 
-// TODO: Ideally mlem::Image and Image3D would be a single type.
+#[derive(BinRead, BinWrite, PartialEq, Debug)]
+#[br(little)]
+#[br(import(pixels: [u16; 3]))]
+pub struct InterFile {
+    #[br(count = pixels[0] as usize * pixels[1] as usize * pixels[2] as usize)]
+    pub data: Vec<f32>,
+}
+
 use super::super::image::Image as MLEMImage;
+impl InterFile {
+    pub fn read_from_file(path: impl AsRef<std::path::Path>, args: <Self as BinRead>::Args) -> std::io::Result<Self> {
+        let file = File::open(path)?;
+        let mut buffered = BufReader::new(file);
+        Ok(buffered.read_le_args(args).unwrap()) 
+    }
+
+    pub fn convert_to_image(self, pixels: [u16; 3], pixel_mm: [f32; 3]) -> MLEMImage {
+        let [px, py, pz] = pixels;
+        let n = (px as usize, py as usize, pz as usize);
+        let [wx, wy, wz] = pixel_mm;
+        let full_size = (mm(wx * px as f32), mm(wy * py as f32), mm(wz * pz as f32));
+        let fov = crate::fov::FOV::new(full_size, n);
+        let data = self.data.clone();
+        MLEMImage { fov, data }
+    }
+}
+
+// TODO: Ideally mlem::Image and Image3D would be a single type.
 impl From<&MLEMImage> for Image3D {
     fn from(image: &MLEMImage) -> Self {
         let n = image.fov.n;
