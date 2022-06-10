@@ -1,0 +1,55 @@
+!INTERFILE := 
+!imaging modality := PET
+!version of keys := CASToRv3.1.1
+CASToR version := 3.1.1
+
+!GENERAL DATA := 
+!originating system := Xe30mm_1layer_6x6crystals
+!data offset in bytes := 0
+!name of data file := interfile_test_it5.img
+patient name := interfile_test_it5
+
+!GENERAL IMAGE DATA 
+!type of data := Dynamic
+!total number of images := 10
+imagedata byte order := LITTLEENDIAN
+!number of frame groups :=1 
+process status := 
+
+!STATIC STUDY (General) :=
+number of dimensions := 3
+!matrix size [1] := 10
+!matrix size [2] := 10
+!matrix size [3] := 10
+!number format := short float
+!number of bytes per pixel := 4
+scaling factor (mm/pixel) [1] := 10
+scaling factor (mm/pixel) [2] := 10
+scaling factor (mm/pixel) [3] := 10
+first pixel offset (mm) [1] := 0
+first pixel offset (mm) [2] := 0
+first pixel offset (mm) [3] := 0
+data rescale offset := 0
+data rescale slope := 1
+quantification units := 1
+!number of images in this frame group := 10
+!image duration (sec) := 12053.34
+!image start time (sec) := 0
+pause between frame groups (sec) := 0
+!END OF INTERFILE := 
+
+!COPY OF INPUT HEADER 1
+Scanner name: Xe30mm_1layer_6x6crystals
+Data filename: H20body-steel_LXe30mm_1layer_6x6crystals_minE434_100files.cdf
+Number of events: 6026671
+Data mode: list-mode
+Data type: PET
+Start time (s): 0
+Duration (s): 12053.342
+TOF information flag: 0
+TOF resolution (ps): 0
+List TOF measurement range (ps): 0.0
+Attenuation correction flag: 0
+Normalization correction flag: 0
+Scatter correction flag: 0
+!END OF COPY OF INPUT HEADER 1
