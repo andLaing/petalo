@@ -2,7 +2,8 @@ use structopt::StructOpt;
 use itertools::Itertools;
 use indicatif::{ProgressBar, ProgressStyle};
 use petalo::io;
-use petalo::io::hdf5::{SensorXYZ, Hdf5Lor};
+use petalo::io::hdf5::Hdf5Lor;
+use petalo::io::mcreaders::{MCQT, MCSensorXYZ, MCVertex};
 use petalo::Energyf32;
 use petalo::{Length, Time, Point, Ratio};
 use geometry::units::mmps::f32::Area;
@@ -95,28 +96,28 @@ fn main() -> hdf5::Result<()> {
     let makelors: FilenameToLorsFunction = match args.reco {
         Reco::FirstVertex => Box::new(
             |infile: &String| -> hdf5::Result<(Vec<Hdf5Lor>, usize)> {
-                let vertices = read_vertices(infile)?;
+                let vertices = io::mcreaders::read_vertices(infile, None)?;
                 let events = group_by(|v| v.event_id, vertices.into_iter());
                 Ok((lors_from(&events, lor_from_first_vertices), events.len()))
             }),
 
         Reco::BaryVertex => Box::new(
             |infile: &String| -> hdf5::Result<(Vec<Hdf5Lor>, usize)> {
-                let vertices = read_vertices(infile)?;
+                let vertices = io::mcreaders::read_vertices(infile, None)?;
                 let events = group_by(|v| v.event_id, vertices.into_iter());
                 Ok((lors_from(&events, lor_from_barycentre_of_vertices), events.len()))
             }),
 
         Reco::Half{q} => Box::new(
             move |infile: &String| -> hdf5::Result<(Vec<Hdf5Lor>, usize)> {
-                let qts = read_qts(infile)?;
+                let qts = io::mcreaders::read_qts(infile, None)?;
                 let events = group_by(|h| h.event_id, qts.into_iter().filter(|h| h.q >= q));
                 Ok((lors_from(&events, |evs| lor_from_hits(evs, &xyzs)), events.len()))
             }),
 
         Reco::Dbscan { q, min_count, max_distance } => Box::new(
             move |infile: &String| -> hdf5::Result<(Vec<Hdf5Lor>, usize)> {
-                let qts = read_qts(infile)?;
+                let qts = io::mcreaders::read_qts(infile, None)?;
                 let events = group_by(|h| h.event_id, qts.into_iter().filter(|h| h.q >= q));
                 Ok((lors_from(&events, |evs| lor_from_hits_dbscan(evs, &xyzs, min_count, max_distance)), events.len()))
             }),
@@ -165,10 +166,10 @@ fn lors_from<T>(events: &[Vec<T>], mut one_lor: impl FnMut(&[T]) -> Option<Hdf5L
 }
 
 #[allow(nonstandard_style)]
-fn lor_from_first_vertices(vertices: &[Vertex]) -> Option<Hdf5Lor> {
+fn lor_from_first_vertices(vertices: &[MCVertex]) -> Option<Hdf5Lor> {
     let mut in_lxe = vertices.iter().filter(|v| v.volume_id == 0);
-    let &Vertex{x:x2, y:y2, z:z2, t:t2, pre_KE: E2, ..} = in_lxe.find(|v| v.track_id == 2)?;
-    let &Vertex{x:x1, y:y1, z:z1, t:t1, pre_KE: E1, ..} = in_lxe.find(|v| v.track_id == 1)?;
+    let &MCVertex{x:x2, y:y2, z:z2, t:t2, pre_KE: E2, ..} = in_lxe.find(|v| v.track_id == 2)?;
+    let &MCVertex{x:x1, y:y1, z:z1, t:t1, pre_KE: E1, ..} = in_lxe.find(|v| v.track_id == 1)?;
     Some(Hdf5Lor {
         dt: t2 - t1,                   x1, y1, z1,   x2, y2, z2,
         q1: f32::NAN, q2: f32::NAN,        E1,           E2,
@@ -176,7 +177,7 @@ fn lor_from_first_vertices(vertices: &[Vertex]) -> Option<Hdf5Lor> {
 }
 
 #[allow(nonstandard_style)]
-fn lor_from_barycentre_of_vertices(vertices: &[Vertex]) -> Option<Hdf5Lor> {
+fn lor_from_barycentre_of_vertices(vertices: &[MCVertex]) -> Option<Hdf5Lor> {
     let (a,b): (Vec<_>, Vec<_>) = vertices
         .iter()
         .filter(|v| v.volume_id == 0 && v.parent_id <= 2)
@@ -195,7 +196,7 @@ fn lor_from_barycentre_of_vertices(vertices: &[Vertex]) -> Option<Hdf5Lor> {
     })
 }
 
-fn lor_from_hits(hits: &[QT], xyzs: &SensorMap) -> Option<Hdf5Lor> {
+fn lor_from_hits(hits: &[MCQT], xyzs: &SensorMap) -> Option<Hdf5Lor> {
     let (cluster_a, cluster_b) = group_into_clusters(hits, xyzs)?;
     //println!("{} + {} = {} ", cluster_a.len(), cluster_b.len(), hits.len());
     let (p1, t1) = cluster_xyzt(&cluster_a, xyzs)?;
@@ -229,11 +230,11 @@ mod test_n_clusters {
     }
 }
 
-fn lor_from_hits_dbscan(hits: &[QT], xyzs: &SensorMap, min_points: usize, tolerance: Length) -> Option<Hdf5Lor> {
+fn lor_from_hits_dbscan(hits: &[MCQT], xyzs: &SensorMap, min_points: usize, tolerance: Length) -> Option<Hdf5Lor> {
     use linfa_clustering::AppxDbscan;
     use linfa::traits::Transformer;
     let active_sensor_positions: ndarray::Array2<f32> = hits.iter()
-        .flat_map(|QT { sensor_id, ..}| xyzs.get(sensor_id))
+        .flat_map(|MCQT { sensor_id, ..}| xyzs.get(sensor_id))
         .map(|&(x,y,z)| [mm_(x), mm_(y), mm_(z)])
         .collect::<Vec<_>>()
         .into();
@@ -267,7 +268,7 @@ fn lor_from_hits_dbscan(hits: &[QT], xyzs: &SensorMap, min_points: usize, tolera
     })
 }
 
-fn cluster_xyzt(hits: &[QT], xyzs: &SensorMap) -> Option<(Point, Time)> {
+fn cluster_xyzt(hits: &[MCQT], xyzs: &SensorMap) -> Option<(Point, Time)> {
     let (x,y,z) = sipm_charge_barycentre(hits, xyzs)?;
     let ts = k_smallest(10, hits.iter().map(|h| h.t))?;
     let t = mean(&ts)?;
@@ -300,16 +301,16 @@ where
     Some(result)
 }
 
-fn find_sensor_with_highest_charge(sensors: &[QT]) -> Option<u32> {
+fn find_sensor_with_highest_charge(sensors: &[MCQT]) -> Option<u32> {
     sensors.iter().max_by_key(|e| e.q).map(|e| e.sensor_id)
 }
 
 type SensorMap = std::collections::HashMap<u32, (Length, Length, Length)>;
 
-fn group_into_clusters(hits: &[QT], xyzs: &SensorMap) -> Option<(Vec::<QT>, Vec::<QT>)> {
+fn group_into_clusters(hits: &[MCQT], xyzs: &SensorMap) -> Option<(Vec::<MCQT>, Vec::<MCQT>)> {
     let sensor_with_highest_charge = find_sensor_with_highest_charge(hits)?;
-    let mut a = Vec::<QT>::new();
-    let mut b = Vec::<QT>::new();
+    let mut a = Vec::<MCQT>::new();
+    let mut b = Vec::<MCQT>::new();
     let &(xm, ym, _) = xyzs.get(&sensor_with_highest_charge)?;
     for hit in hits.iter().cloned() {
         let &(x, y, _) = xyzs.get(&hit.sensor_id)?;
@@ -321,13 +322,13 @@ fn group_into_clusters(hits: &[QT], xyzs: &SensorMap) -> Option<(Vec::<QT>, Vec:
 
 fn dot((x1,y1): (Length, Length), (x2,y2): (Length, Length)) -> Area { x1*x2 + y1*y2 }
 
-fn sipm_charge_barycentre(hits: &[QT], xyzs: &SensorMap) -> Option<(Length, Length, Length)> {
+fn sipm_charge_barycentre(hits: &[MCQT], xyzs: &SensorMap) -> Option<(Length, Length, Length)> {
     if hits.is_empty() { return None }
     let mut qs = Ratio::ZERO;
     let mut xx = Length::ZERO;
     let mut yy = Length::ZERO;
     let mut zz = Length::ZERO;
-    for &QT{ sensor_id, q, .. } in hits {
+    for &MCQT{ sensor_id, q, .. } in hits {
         let &(x, y, z) = xyzs.get(&sensor_id)?;
         let q = ratio(q as f32);
         qs += q;
@@ -349,7 +350,7 @@ struct Barycentre {
 }
 
 #[allow(nonstandard_style)]
-fn vertex_barycentre(vertices: &[&Vertex]) -> Option<Barycentre> {
+fn vertex_barycentre(vertices: &[&MCVertex]) -> Option<Barycentre> {
     if vertices.is_empty() { return None }
     let mut delta_E = 0.0;
     let mut rr = Length::ZERO;
@@ -357,7 +358,7 @@ fn vertex_barycentre(vertices: &[&Vertex]) -> Option<Barycentre> {
     let mut yy = Length::ZERO;
     let mut zz = Length::ZERO;
     let mut tt = Time::ZERO;
-    for &&Vertex { x, y, z, t, pre_KE, post_KE, .. } in vertices {
+    for &&MCVertex { x, y, z, t, pre_KE, post_KE, .. } in vertices {
         let dE = pre_KE - post_KE;
         let (x, y, z, t) = (mm(x), mm(y), mm(z), ns(t));
         delta_E += dE;
@@ -386,8 +387,8 @@ mod test_vertex_barycentre {
     use std::f32::consts::PI;
 
     /// Create a vertex with interesting x,y, optional pre_KE and dummy values elsewhere
-    fn vertex(x: Length, y: Length, pre_ke: Option<Energyf32>) -> Vertex {
-        Vertex {
+    fn vertex(x: Length, y: Length, pre_ke: Option<Energyf32>) -> MCVertex {
+        MCVertex {
             // interesting values
             x: mm_(x), y: mm_(y),
             // dummy values
@@ -404,14 +405,14 @@ mod test_vertex_barycentre {
         let r = mm(355.0);
 
         // Distribute vertices on quarter circle
-        let vertices: Vec<Vertex> = (0..10)
+        let vertices: Vec<MCVertex> = (0..10)
             .map(|i| radian(i as f32 * PI / 20.0))
             .map(|angle| (r * angle.cos(), r * angle.sin()))
             .map(|(x,y)| vertex(x,y, None))
             .collect();
 
         // Create vector of vertex refs, as required by vertex_barycentre
-        let vertex_refs: Vec<&Vertex> = vertices.iter().collect();
+        let vertex_refs: Vec<&MCVertex> = vertices.iter().collect();
 
         let Barycentre { x, y, .. } = vertex_barycentre(&vertex_refs).unwrap();
         let bary_r = (x*x + y*y).sqrt();
@@ -431,7 +432,7 @@ mod test_vertex_barycentre {
         let (expected_x, expected_y) = (r * angle.cos(), r * angle.sin());
 
         // Create vector of vertex refs, as required by vertex_barycentre
-        let vertex_refs: Vec<&Vertex> = vertices.iter().collect();
+        let vertex_refs: Vec<&MCVertex> = vertices.iter().collect();
 
         let Barycentre { x, y, .. } = vertex_barycentre(&vertex_refs).unwrap();
 
@@ -443,12 +444,12 @@ mod test_vertex_barycentre {
     fn energy_weights_used_correctly() {
         let energies = vec![511.0, 415.7, 350.0, 479.0, 222.5];
         let ys       = vec![353.5, 382.0, 367.3, 372.9, 377.0];
-        let vertices: Vec<Vertex> = ys.iter().zip(energies.iter())
+        let vertices: Vec<MCVertex> = ys.iter().zip(energies.iter())
             .map(|(y, e)| vertex(mm(0.0), mm(*y), Some(*e)))
             .collect();
 
         // Create vector of vertex refs, as required by vertex_barycentre
-        let vertex_refs: Vec<&Vertex> = vertices.iter().collect();
+        let vertex_refs: Vec<&MCVertex> = vertices.iter().collect();
 
         let weighted_sum = ys.iter().zip(energies.iter())
             .fold(0.0, |acc, (y, w)| acc + y * w);
@@ -463,87 +464,9 @@ mod test_vertex_barycentre {
     }
 }
 
-#[derive(Clone, Debug)]
-pub struct QT {
-    pub event_id: u32,
-    pub sensor_id: u32,
-    pub q: u32,
-    pub t: Time,
-}
-
-#[derive(hdf5::H5Type, Clone, PartialEq, Debug)]
-#[repr(C)]
-#[allow(nonstandard_style)]
-pub struct Vertex {
-    event_id: u32,
-    track_id: u32,
-    parent_id: u32,
-    x: f32,
-    y: f32,
-    z: f32,
-    t: f32,
-    moved: f32,
-    pre_KE: f32,
-    post_KE: f32,
-    deposited: u32,
-    process_id: u32, // NB these may differ across
-    volume_id: u32,  // different files
-}
-
-#[derive(hdf5::H5Type, Clone, PartialEq, Debug)]
-#[repr(C)]
-pub struct Waveform {
-    pub event_id: u32,
-    pub sensor_id: u32,
-    pub time: f32,
-}
-
-#[derive(hdf5::H5Type, Clone, PartialEq, Debug)]
-#[repr(C)]
-pub struct Qtot {
-    pub event_id: u32,
-    pub sensor_id: u32,
-    pub charge: u32,
-}
-
-// TODO Is there really no simpler way?
-fn array_to_vec<T: Clone>(array: ndarray::Array1<T>) -> Vec<T> {
-    let mut vec = vec![];
-    vec.extend_from_slice(array.as_slice().unwrap());
-    vec
-}
-
-
-
 fn read_sensor_map(filename: &str) -> hdf5::Result<SensorMap> {
-    // TODO: refactor and hide in a function
-    let array = io::hdf5::read_table::<SensorXYZ>(filename, "MC/sensor_xyz"  , None)?;
-    Ok(make_sensor_position_map(array_to_vec(array)))
-}
-
-fn read_vertices(filename: &str) -> hdf5::Result<Vec<Vertex>> {
-    Ok(array_to_vec(io::hdf5::read_table::<Vertex>(filename, "MC/vertices", None)?))
-}
-
-fn read_qts(infile: &str) -> hdf5::Result<Vec<QT>> {
-    // Read charges and waveforms
-    let qs = io::hdf5::read_table::<Qtot     >(infile, "MC/total_charge", None)?;
-    let ts = io::hdf5::read_table::<Waveform >(infile, "MC/waveform"    , None)?;
-    Ok(combine_tables(qs, ts))
-}
-
-fn combine_tables(qs: ndarray::Array1<Qtot>, ts: ndarray::Array1<Waveform>) -> Vec<QT> {
-    let mut qts = vec![];
-    let mut titer = ts.iter();
-    for &Qtot{ event_id, sensor_id, charge:q} in qs.iter() {
-        for &Waveform{ event_id: te, sensor_id: ts, time:t} in titer.by_ref() {
-            if event_id == te && sensor_id == ts {
-                qts.push(QT{ event_id, sensor_id, q, t: ns(t) });
-                break;
-            }
-        }
-    }
-    qts
+    let sensor_xyz = io::mcreaders::read_sensor_xyz(filename);
+    Ok(make_sensor_position_map(sensor_xyz.unwrap()))
 }
 
 fn group_by<T>(group_by: impl FnMut(&T) -> u32, qts: impl IntoIterator<Item = T>) -> Vec<Vec<T>> {
@@ -554,9 +477,9 @@ fn group_by<T>(group_by: impl FnMut(&T) -> u32, qts: impl IntoIterator<Item = T>
         .collect()
 }
 
-fn make_sensor_position_map(xyzs: Vec<SensorXYZ>) -> SensorMap {
+fn make_sensor_position_map(xyzs: Vec<MCSensorXYZ>) -> SensorMap {
     xyzs.iter().cloned()
-        .map(|SensorXYZ{sensor_id, x, y, z}| (sensor_id, (mm(x), mm(y), mm(z))))
+        .map(|MCSensorXYZ{sensor_id, x, y, z}| (sensor_id, (mm(x), mm(y), mm(z))))
         .collect()
 }
 
@@ -598,7 +521,7 @@ mod test_nested_compound_hdf5 {
         }
         // read
         let read_data = petalo::io::hdf5::read_table::<Outer>(&file_path, "just-testing/nested", None)?;
-        let read_data = super::array_to_vec(read_data);
+        let read_data = super::io::mcreaders::array_to_vec(read_data);
         assert_eq!(test_data, read_data);
         println!("Test table written to {}", file_path);
         Ok(())
