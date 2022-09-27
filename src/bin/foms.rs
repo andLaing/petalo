@@ -19,6 +19,10 @@ pub struct Cli {
     /// Image file to analyse
     pub input_file: String,
 
+    /// InterFile header file
+    #[structopt(short, long)]
+    pub interfile: Option<PathBuf>,
+
 }
 
 // --------------------------------------------------------------------------------
@@ -30,14 +34,43 @@ use petalo::fom;
 use petalo::fom::{Sphere, ROI, centres_of_slices_closest_to};
 
 fn main() -> Result<(), Box<dyn Error>> {
-    let args = Cli::parse();
-    let image = Image3D::read_from_file(&args.input_file)?;
-    let image = Image::from(&image);
+    let args = Cli::from_args();
+    let image = match args.interfile {
+        None => {
+            let image = Image3D::read_from_file(&args.input_file)?;
+            Image::from(&image)
+        }
+        Some(hdr) => {
+            let (npix, edge_mm) = read_interfile_hdr(hdr);
+            // Convert to arrays for reading
+            let npix = npix.try_into().unwrap();
+            let edge_mm = edge_mm.try_into().unwrap();
+            let image = InterFile::read_from_file(&args.input_file, (npix,))?;
+            image.convert_to_image(npix, edge_mm)
+        }
+    };
 
     match args.phantom {
         Phantom::Nema7    =>    nema7_foms(&image),
         Phantom::Jaszczak => jaszczak_foms(&image),
     }
+}
+
+use std::io::BufRead;
+fn read_interfile_hdr(path: PathBuf) -> (Vec<u16>, Vec<f32>) {
+    let file = std::fs::File::open(path).expect("file not found!");
+    let reader = std::io::BufReader::new(file);
+    let (pix_lines, size_lines): (Vec<String>, Vec<String>) = reader.lines()
+        .map(|l| l.unwrap())
+        .filter(|l| l.contains("matrix size") || l.contains("scaling factor"))
+        .partition(|l| l.contains("mat"));
+    let npix = pix_lines.iter()
+        .map(|l| l.split_once("=").unwrap())
+        .map(|(_, v)| v.trim().parse::<u16>().unwrap()).collect();
+    let pix_size = size_lines.iter()
+        .map(|l| l.split_once("=").unwrap())
+        .map(|(_, v)| v.trim().parse::<f32>().unwrap()).collect();
+    (npix, pix_size)
 }
 
 fn sphere_foms(
