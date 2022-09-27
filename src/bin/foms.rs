@@ -27,8 +27,10 @@ pub struct Cli {
 
 // --------------------------------------------------------------------------------
 use std::error::Error;
+use std::path::PathBuf;
 use units::{Length, mm, mm_, todo::Intensityf32};
 use petalo::{fom::{InRoiFn, PointValue}, io::raw::Image3D};
+use petalo::io::raw::InterFile;
 use petalo::image::Image;
 use petalo::fom;
 use petalo::fom::{Sphere, ROI, centres_of_slices_closest_to};
